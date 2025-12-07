@@ -1,0 +1,10 @@
+---
+- name: Azure SIG Image Management
+  hosts: all
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Azure SIG Image Management
+      include_role:
+        name: azure_sig

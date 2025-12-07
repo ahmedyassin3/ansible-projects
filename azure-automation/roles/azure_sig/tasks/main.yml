@@ -1,0 +1,109 @@
+---
+# tasks/main.yml for azure_sig
+- name: Get Resource Group Info
+  debug:
+    var: vm_resource_group
+
+- name: Get facts by name
+  azure_rm_virtualmachine_info:
+    resource_group: "{{ vm_resource_group }}"
+    name: "{{ vm_name }}"
+  register: source_vm_info
+
+- name: Set image_definition fact
+  set_fact:
+    image_definition: "{{ vm_name }}-image"
+
+- name: Create gallery image definition
+  azure.azcollection.azure_rm_resource:
+    api_version: "2021-07-01"
+    resource_group: "{{ gallery_resource_group }}"
+    provider: compute
+    resource_type: "galleries/{{ gallery_name }}/images"
+    resource_name: "{{ image_definition }}"
+    method: PUT
+    body:
+      location: "{{ source_vm_info.vms[0].location }}"
+      properties:
+        features:
+          - name: securityType
+            value: TrustedLaunch
+        osType: "{{ source_vm_info.vms[0].os_type }}"
+        osState: specialized
+        hyperVGeneration: V2
+        identifier:
+          publisher: "EXAMPLE"
+          offer: "{{ offer_name }}"
+          sku: "{{ sku_version }}"
+
+- name: If no version supplied, fetch SIG versions
+  azure.azcollection.azure_rm_galleryimageversion_info:
+    resource_group: "{{ gallery_resource_group }}"
+    gallery_name: "{{ gallery_name }}"
+    gallery_image_name: "{{ image_definition }}"
+  register: sig
+  when: (version | default('')) == ''
+
+- name: Fail if no versions exist and no version provided
+  fail:
+    msg: "No SIG versions exist for this image definition, and no version was supplied."
+  when:
+    - (version | default('')) == ''
+    - (sig.gallery_image_versions | length) == 0
+
+- name: Determine latest version (only when auto-bumping)
+  set_fact:
+    latest_version: "{{ sig.gallery_image_versions | map(attribute='name') | list | sort | last }}"
+  when: (version | default('')) == ''
+
+- name: Set version automatically (bump)
+  set_fact:
+  bumped_version: >-
+    {{
+      latest_version.split('.')[:-1]
+      + [ (latest_version.split('.')[-1] | int + 1) | string ]
+      | join('.')
+    }}
+  when: (version | default('')) == ''
+
+- name: Select final version (user-supplied OR bumped)
+  set_fact:
+    final_version: "{{ version | default('', true) if (version | default('') != '') else bumped_version }}"
+
+- name: Ensure VM is stopped before creating gallery image version and restarted afterwards if needed
+  block:
+    - name: Determine if the source VM was running (treat 'deallocated' as stopped)
+      set_fact:
+        vm_was_running: "{{ not ('deallocated' in (source_vm_info.vms[0].power_state | default('') | lower)) }}"
+
+    - name: Stop the VM if it was running
+      azure_rm_virtualmachine:
+        resource_group: "{{ vm_resource_group }}"
+        name: "{{ vm_name }}"
+        started: false
+      when: vm_was_running
+
+    - name: Create a gallery image version from the virtual machine
+      azure_rm_galleryimageversion:
+        resource_group: "{{ gallery_resource_group }}"
+        gallery_name: "{{ gallery_name }}"
+        gallery_image_name: "{{ image_definition }}"
+        name: "{{ final_version }}"
+        location: "{{ source_vm_info.vms[0].location }}"
+        storage_profile:
+          source_image: 
+            virtual_machine_id: "{{ source_vm_info.vms[0].id }}"
+      register: gallery_image_result
+
+  rescue:
+    - name: Report gallery image creation failure
+      debug:
+        msg: "Gallery image creation failed: {{ gallery_image_result | default('no result') }}"
+
+  always:
+    - name: Start the VM if it was running originally regardless of the result of sig creation
+      azure_rm_virtualmachine:
+        resource_group: "{{ vm_resource_group }}"
+        name: "{{ vm_name }}"
+        started: true
+      when: vm_was_running
