@@ -1,0 +1,5 @@
+[sshd]
+enabled = true
+port = 1722
+logpath = %(sshd_log)s
+maxretry = 3

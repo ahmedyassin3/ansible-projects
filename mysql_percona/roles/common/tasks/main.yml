@@ -1,0 +1,21 @@
+---
+- name: Ensure Python 3 and pip are installed (RedHat)
+  ansible.builtin.yum:
+    name:
+      - python3
+      - python3-pip
+    state: present
+
+- name: Install MySQL Python library for Python 3 (RedHat)
+  ansible.builtin.pip:
+    name: PyMySQL
+    state: present
+
+- name: Add Percona repository (RedHat)
+  ansible.builtin.yum_repository:
+    name: percona
+    description: "Percona Repository"
+    baseurl: "https://repo.percona.com/yum/percona-release-latest.noarch.rpm"
+    gpgcheck: yes
+    gpgkey: "https://repo.percona.com/yum/PERCONA-PACKAGING-KEY"
+    enabled: yes

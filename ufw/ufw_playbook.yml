@@ -1,0 +1,92 @@
+---
+- name: Check and install UFW if not installed
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Gather OS specific facts
+      ansible.builtin.setup:
+        filter: ansible_os_family
+
+    - name: Check for firewalld existance on the server
+      stat:
+        path: /usr/sbin/firewall-cmd # Path to firewalld command
+      register: firewalld_check
+
+    - debug:
+        msg: "firewalld is installed"
+      when: firewalld_check.stat.exists # Check if file exists
+
+    - debug:
+        msg: "firewalld is not installed"
+      when: not firewalld_check.stat.exists # Check if file doesn't exist
+   
+    - name: Stop firewalld service (if running)
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+      when: firewalld_check.stat.exists # Check if file exists
+
+    - name: Uninstall firewalld package
+      package:
+        name: firewalld
+        state: absent
+
+    - name: Check if UFW is installed
+      command: which ufw
+      register: ufw_installed
+      ignore_errors: yes
+    
+    - name: Print UFW installation status
+      debug:
+        msg: "UFW is installed"
+      when: ufw_installed.rc == 0
+
+    - name: Print UFW not installed message
+      debug:
+        msg: "UFW is not installed"
+      when: ufw_installed.rc != 0
+    
+    - name: Install EPEL repo
+      yum:
+        name: epel-release
+        state: present
+      when: {{ ansible_os_family == "RedHat" }}
+    
+    - name: Ensure UFW is installed
+      package:
+        name: ufw
+        state: present
+
+    - name: Check if there are any iptables rules
+      command: iptables -L
+      register: iptables_rules
+
+    - name: Flush iptables rules
+      command: iptables -F
+      when: iptables_rules.stdout != "Chain INPUT (policy ACCEPT)\nChain FORWARD (policy ACCEPT)\nChain OUTPUT (policy ACCEPT)"
+
+    - name: Check iptables rules again
+      command: iptables -L
+      register: iptables_rules_after
+
+    - name: Display iptables status
+      debug:
+        msg: "iptables rules have been {{ 'flushed' if iptables_rules.stdout != iptables_rules_after.stdout else 'not changed' }}"
+
+    - name: Apply node-specific rules
+      command: "{{ item }}"
+      loop: "{{ lookup('file', '/srv/git/my_git.git/UFW_Rules/special_ufw-rules.txt').splitlines() }}"
+    
+    - name: Apply static rules
+      command: "{{ item }}"
+      loop: "{{ lookup('file', '/srv/git/my_git.git/UFW_Rules/hetrixtools_ips.txt').splitlines() }}"
+
+    - name: Apply dynamic rules
+      command: "{{ item }}"
+      loop: "{{ lookup('file', '/srv/git/my_git.git/UFW_Rules/ufw-nodes_rules.txt').splitlines() }}"
+
+    - name: Check if UFW is enabled
+      ufw:
+        state: enabled

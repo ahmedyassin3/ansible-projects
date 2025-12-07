@@ -1,0 +1,130 @@
+---
+- name: Update and upgrade packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install essential packages
+  apt:
+    pkg:
+    - vim
+    - ufw
+    - git
+    - apache2
+    - python3-certbot-apache
+    - docker.io
+    - fail2ban
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    - software-properties-common
+    - python3-pip
+    - virtualenv
+    - python3-setuptools
+    # Add more packages as needed
+
+- name: Configure SSH with key-based authentication and custom port
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: "{{ item.state }}"
+  loop:
+    - { regexp: '^#?Port ', line: 'Port 1722', state: 'present' }
+    - { regexp: '^#?PasswordAuthentication ', line: 'PasswordAuthentication no', state: 'present' }
+    - { regexp: '^#?PermitRootLogin ', line: 'PermitRootLogin no', state: 'present' }
+  notify: restart sshd
+
+- name: Create admin user "user"
+  user:
+    name: user
+    state: present
+    groups: sudo
+    append: yes
+
+  
+- name: Allow SSH (custom port)
+  ufw:
+    rule: allow
+    port: 1722
+    proto: tcp
+
+- name: Allow HTTP (for Certbot)
+  ufw:
+    rule: allow
+    port: 80
+    proto: tcp
+
+- name: Allow HTTPS
+  ufw:
+    rule: allow
+    port: 443
+    proto: tcp
+
+- name: Enable UFW (firewall)
+  ufw:
+    state: enabled
+    
+- name: Install and set up Apache as a reverse proxy
+  apache2_module:
+    name: proxy
+    state: present
+  become: true
+  notify: restart apache2
+  when: "'apache2' in ansible_facts.packages"
+
+- name: Configure Apache as a reverse proxy
+  copy:
+    src: files/reverse_proxy.conf
+    dest: /etc/apache2/sites-available/reverse_proxy.conf
+  notify: restart apache2
+
+- name: Install Certbot Apache plugin
+  apt:
+    name: python3-certbot-apache
+    state: present
+
+- name: Install Docker
+  apt:
+    name: docker.io
+    state: present
+  notify: restart docker
+
+- name: Install and configure Fail2Ban
+  copy:
+    src: files/jail.local
+    dest: /etc/fail2ban/jail.local
+  notify: restart fail2ban
+
+- name: Set up system hardening
+  sysctl:
+    name: "{{ item }}"
+    value: 1
+    sysctl_set: yes
+    state: present
+  loop:
+    - "net.ipv4.ip_forward"
+    - "net.ipv4.icmp_echo_ignore_broadcasts"
+    - "net.ipv4.icmp_ignore_bogus_error_responses"
+    - "net.ipv4.tcp_syncookies"
+    # Add more sysctl settings as needed
+
+- name: Ensure automatic updates are configured
+  apt:
+    name: unattended-upgrades
+    state: present
+
+#- name: Remove unnecessary system users
+#  user:
+#    name: "{{ item }}"
+#    state: absent
+#  loop:
+#    - user1
+#    - user2
+    # Add more users as needed
+
+- name: Configure automatic security updates
+  copy:
+    src: files/20auto-upgrades
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+  notify: restart unattended-upgrades

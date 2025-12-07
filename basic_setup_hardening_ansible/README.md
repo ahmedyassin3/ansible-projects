@@ -1,0 +1,1 @@
+# Basic configuration and security hardening of Linux machine

@@ -1,0 +1,15 @@
+---
+- name: Install Percona Server for MySQL (RedHat)
+  ansible.builtin.shell: |
+    percona-release enable-only ps-80
+
+- name: Install Percona Server for MySQL (RedHat)
+  yum:
+    name: percona-server-server-{{ percona_version }}
+    state: present
+
+- name: Start Percona service
+  ansible.builtin.systemd:
+    name: mysqld
+    state: started
+    enabled: yes

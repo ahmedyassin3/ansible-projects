@@ -1,0 +1,6 @@
+---
+- name: Configure and Harden Server
+  hosts: servers
+  become: true
+  roles:
+    - common

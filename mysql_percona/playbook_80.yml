@@ -1,0 +1,10 @@
+---
+- hosts: all
+  become: yes
+  roles:
+    - common
+    - mysql80
+  vars_prompt:
+    - name: percona_version
+      prompt: "Enter the MySQL version to install (e.g., 8.0.32)"
+      private: no
